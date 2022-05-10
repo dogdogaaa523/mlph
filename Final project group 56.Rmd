@@ -1,0 +1,358 @@
+---
+title: "Final Project (Group 56)"
+author: "Zhongyang Wang Yuxuan Zhao"
+date: "2022/4/25"
+output:
+  pdf_document: default
+  html_document: default
+---
+#Data processing
+```{r}
+library(caret)
+library(tidyverse)
+library(tree)
+library(MASS)
+library(randomForest)
+library(gbm)
+train<-read.csv("C:/Users/75705/OneDrive/Desktop/2338/train(1).csv")
+test<-read.csv("C:/Users/75705/OneDrive/Desktop/2338/test(1).csv")
+test_price<-read.csv("C:/Users/75705/OneDrive/Desktop/2338/sample_submission(1).csv")
+#train <- read.csv("C:/Users/46025/Desktop/houseprice/train.csv")
+#test <- read.csv("C:/Users/46025/Desktop/houseprice/test.csv")
+#test_price <- read.csv("C:/Users/46025/Desktop/houseprice/sample_submission.csv")
+test <- cbind(test, test_price)[,-81]
+total <- rbind(train, test)
+train<-train%>%
+  dplyr::select(c("SalePrice","LotArea","LotFrontage","YrSold","OverallQual","OverallCond","YearBuilt","BsmtQual","HeatingQC","X1stFlrSF","X2ndFlrSF","KitchenQual","Fireplaces","GarageArea","PoolArea","TotRmsAbvGrd"))
+train1 <- train %>% drop_na()
+test<-test%>%
+  dplyr::select(c("SalePrice","LotArea","LotFrontage","YrSold","OverallQual","OverallCond","YearBuilt","BsmtQual","HeatingQC","X1stFlrSF","X2ndFlrSF","KitchenQual","Fireplaces","GarageArea","PoolArea","TotRmsAbvGrd"))
+test1 <- test %>% drop_na()
+sum(is.na(test1))
+
+train1$BsmtQual <- as.factor(train1$BsmtQual)
+train1$HeatingQC <- as.factor(train1$HeatingQC)
+train1$KitchenQual <- as.factor(train1$KitchenQual)
+
+test1$BsmtQual <- as.factor(test1$BsmtQual)
+test1$HeatingQC <- as.factor(test1$HeatingQC)
+test1$KitchenQual <- as.factor(test1$KitchenQual)
+```
+
+#Univariate analysis
+```{r}
+hist(total$SalePrice)
+hist(total$LotArea)
+hist(total$LotFrontage)
+hist(total$YrSold)
+hist(total$OverallQual)
+hist(total$OverallCond)
+hist(total$YearBuilt)
+#hist(total$BsmtQual)
+#hist(total$HeatingQC)
+hist(total$X1stFlrSF)
+hist(total$X2ndFlrSF)
+#hist(total$KitchenQual)
+hist(total$Fireplaces)
+hist(total$GarageArea)
+hist(total$PoolArea)
+hist(total$TotRmsAbvGrd)
+```
+
+#Bivariate analysis
+```{r}
+par(mfrow = c(1,2))
+plot(total$YrSold,total$SalePrice)
+plot(total$OverallQual,total$SalePrice)
+plot(total$OverallCond,total$SalePrice)
+#plot(total$BsmtQual,total$SalePrice)
+#plot(total$HeatingQC,total$SalePrice)
+plot(total$GarageArea, total$SalePrice)
+plot(total$X1stFlrSF, total$SalePrice)
+plot(total$X2ndFlrSF, total$SalePrice)
+#plot(total$KitchenQual, total$SalePrice)
+plot(total$Fireplaces, total$SalePrice)
+plot(total$PoolArea, total$SalePrice)
+plot(total$YearBuilt,total$SalePrice)
+plot(total$LotFrontage,total$SalePrice)
+plot(total$LotArea,total$SalePrice)
+plot(total$TotRmsAbvGrd,total$SalePrice)
+```
+
+#Linear regression
+```{r}
+reg_linear<-lm(SalePrice~.,data=train1)
+summary(reg_linear)
+predm<-predict(reg_linear,newdata=test1)
+```
+
+#Linear regression with knn
+```{r }
+fit_knn <- knnreg(SalePrice ~ ., data = train1, k = 5)
+
+pred_knn_train <- predict(fit_knn, newdata = train1)
+mean((train1$SalePrice - pred_knn_train) ^ 2)
+
+pred_knn_test <- predict(fit_knn, newdata = test1)
+mean((test1$SalePrice - pred_knn_test) ^ 2)
+```
+
+```{r}
+training_error <- c()
+prediction_error <- c()
+x <- 2:50
+for (i in 2:50) {
+  fit_knn <- knnreg(SalePrice ~ ., data = train1, k = i)
+
+  pred_knn_train <- predict(fit_knn, newdata = train1)
+  train_error <- mean((train1$SalePrice - pred_knn_train) ^ 2)
+
+  pred_knn_test <- predict(fit_knn, newdata = test1)
+  test_error <- mean((test1$SalePrice - pred_knn_test) ^ 2)
+  
+  training_error <- append(training_error, train_error)
+  prediction_error <- append(prediction_error, test_error)
+}
+df <- data.frame(subtree_size = x, training_error, prediction_error)
+df
+cols <- c('train_err' = "red", 'test_err' = "blue")
+ggplot() + 
+  geom_line(aes(x, training_error, colour = "train_err")) + 
+  geom_line(aes(x, prediction_error, colour = "test_err")) +
+  labs(x = "k", y ="error") +
+  scale_colour_manual(name = "error_type",
+                      values = cols)
+```
+
+#Categorical data transformation
+```{r}
+library(nnet)
+a<-class.ind(train1$BsmtQual)
+train2<-cbind(train1,a)
+train2<-train2%>%
+  rename("BsmtQualEx"="Ex","BsmtQualFa"="Fa","BsmtQualGd"="Gd","BsmtQualTA"="TA")
+a2<-class.ind(train1$KitchenQual)
+train2<-cbind(train2,a2)
+train2<-train2%>%
+  rename("KitchenQualFa"="Fa","KitchenQualGd"="Gd","KitchenQualTA"="TA","KitchenQualEx"="Ex")
+a3<-class.ind(train1$HeatingQC)
+train2<-cbind(train2,a3)
+train2<-train2%>%
+  rename("HeatingQCEx"="Ex","HeatingQCFa"="Fa","HeatingQCGd"="Gd","HeatingQCTA"="TA","HeatingQCPo"="Po")
+
+a<-class.ind(test1$BsmtQual)
+test2<-cbind(test1,a)
+test2<-test2%>%
+  rename("BsmtQualEx"="Ex","BsmtQualFa"="Fa","BsmtQualGd"="Gd","BsmtQualTA"="TA")
+a2<-class.ind(test1$KitchenQual)
+test2<-cbind(test2,a2)
+test2<-test2%>%
+  rename("KitchenQualFa"="Fa","KitchenQualGd"="Gd","KitchenQualTA"="TA","KitchenQualEx"="Ex")
+a3<-class.ind(test1$HeatingQC)
+test2<-cbind(test2,a3)
+test2<-test2%>%
+  rename("HeatingQCEx"="Ex","HeatingQCFa"="Fa","HeatingQCGd"="Gd","HeatingQCTA"="TA","HeatingQCPo"="Po")
+```
+
+#BIC
+```{r}
+library(leaps)
+best_subset <- regsubsets(SalePrice ~ ., data = train1, nvmax = 20)
+best_subset_sum <- summary(best_subset)
+best_ind <- which.min(best_subset_sum$bic)
+best_coef <- coef(best_subset, best_ind)
+te_x <- test2 %>%  dplyr::select(names(best_coef)[-1])
+te_pred <- cbind(1, as.matrix(te_x)) %*% best_coef
+te_error <- mean((te_pred - test2$SalePrice)^2)
+te_error
+tr_x <- train2 %>%  dplyr::select(names(best_coef)[-1])
+tr_pred <- cbind(1, as.matrix(tr_x)) %*% best_coef
+tr_error <- mean((tr_pred - train2$SalePrice)^2)
+tr_error
+```
+
+#R^2
+```{r}
+forward_fit <- regsubsets(SalePrice ~ ., data = train1, method = "forward", nvmax = 20)
+forward_sum <- summary(forward_fit)
+best_ind <- which.min(forward_sum$adjr2)
+best_coef <- coef(forward_fit, best_ind)
+te_x <- test2 %>% dplyr::select(names(best_coef)[-1])
+te_pred <- cbind(1, as.matrix(te_x)) %*% best_coef
+te_error <- mean((te_pred - test2$SalePrice)^2)
+te_error
+tr_x <- train2 %>%  dplyr::select(names(best_coef)[-1])
+tr_pred <- cbind(1, as.matrix(tr_x)) %*% best_coef
+tr_error <- mean((tr_pred - train2$SalePrice)^2)
+tr_error
+```
+
+#CP
+```{r}
+forward_fit <- regsubsets(SalePrice ~ ., data = train1, method = "backward", nvmax = 20)
+forward_sum <- summary(forward_fit)
+best_ind <- which.min(forward_sum$cp)
+best_coef <- coef(forward_fit, best_ind)
+te_x <- test2 %>% dplyr::select(names(best_coef)[-1])
+te_pred <- cbind(1, as.matrix(te_x)) %*% best_coef
+te_error <- mean((te_pred - test2$SalePrice)^2)
+te_error
+tr_x <- train2 %>%  dplyr::select(names(best_coef)[-1])
+tr_pred <- cbind(1, as.matrix(tr_x)) %*% best_coef
+tr_error <- mean((tr_pred - train2$SalePrice)^2)
+tr_error
+```
+
+#10-fold CV
+```{r}
+library(glmnet)
+library(caret)
+
+x_tr <- as.matrix(train2[, -c(1,8,9,12)])
+y_tr <- train1[, 1, drop = T]
+x_te <- as.matrix(test2[, -c(1,8,9,12)])
+y_te <- test1[, 1, drop = T]
+std_fit <- preProcess(x_tr, method = c("center", "scale"))
+x_tr_std <- predict(std_fit, x_tr)
+x_te_std <- predict(std_fit, x_te)
+set.seed(0)
+cv_fit_ridge <- cv.glmnet(x_tr_std, y_tr, alpha = 0)
+te_pred <- predict(cv_fit_ridge, newx = x_te_std)
+te_error <- mean((te_pred - y_te)^2)
+te_error
+tr_pred <- predict(cv_fit_ridge, newx = x_tr_std)
+tr_error <- mean((tr_pred - y_tr)^2)
+tr_error
+```
+
+#LASSO
+```{r}
+set.seed(0)
+cv_fit_lasso <- cv.glmnet(x_tr, y_tr)
+te_pred <- predict(cv_fit_lasso, newx = x_te)
+te_error <- mean((te_pred - y_te)^2)
+te_error
+tr_pred <- predict(cv_fit_lasso, newx = x_tr)
+tr_error <- mean((tr_pred - y_tr)^2)
+tr_error
+```
+
+#Tree
+```{r}
+my_control <- tree.control(nrow(train1), minsize = 2, mindev = 0)
+fit <- tree(SalePrice ~ ., 
+            control = my_control,
+            data = train1)
+training_error <- c()
+prediction_error <- c()
+x <- 2:40
+for (i in 2:40) {
+  fit.prune <- prune.tree(fit, best = i)
+  pred_price_tr <- predict(fit.prune, newdata = train1)
+  train_error <- mean((pred_price_tr - train1$SalePrice)^2)
+  pred_price_te <- predict(fit.prune, newdata = test1)
+  test_error <- mean((pred_price_te - test1$SalePrice)^2)
+  training_error <- append(training_error, train_error)
+  prediction_error <- append(prediction_error, test_error)
+}
+df <- data.frame(subtree_size = x, training_error, prediction_error)
+df
+cols <- c('train_err' = "red", 'test_err' = "blue")
+ggplot() + 
+  geom_line(aes(x, training_error, colour = "train_err")) + 
+  geom_line(aes(x, prediction_error, colour = "test_err")) +
+  labs(x = "subtree_size", y ="error") +
+  scale_colour_manual(name = "error_type",
+                      values = cols)
+```
+
+#Tree with CV
+```{r}
+set.seed(0)
+cv.sal <- cv.tree(fit)
+cv.sal_df <- data.frame(size = rev(cv.sal$size), deviance = rev(cv.sal$dev))
+best_size <- rev(cv.sal$size)[which.min(rev(cv.sal$dev))]
+sal.tree.final <- prune.tree(fit, best = best_size) #The subtree with best_size terminal nodes
+plot(sal.tree.final)
+text(sal.tree.final)
+pred_price_tr <- predict(sal.tree.final, newdata = train1)
+train_error <- mean((pred_price_tr - train1$SalePrice)^2)
+pred_price_te <- predict(sal.tree.final, newdata = test1)
+test_error <- mean((pred_price_te - test1$SalePrice)^2)
+train_error
+test_error
+```
+
+#Bagging
+```{r}
+set.seed(1)
+##Setting mtry = p for bagging
+bag.price <- randomForest(SalePrice ~ ., data = train1, mtry = 15, importance=TRUE)
+
+yhat.bag <- predict(bag.price,newdata=train1)
+mean((yhat.bag-train1$SalePrice)^2)
+
+yhat.bag <- predict(bag.price,newdata=test1)
+mean((yhat.bag-test1$SalePrice)^2)
+```
+
+#Random forest
+```{r}
+set.seed(1)
+rf.price <- randomForest(SalePrice ~ ., data = train1, importance = TRUE)
+
+yhat.rf <- predict(rf.price,newdata=train1)
+mean((yhat.rf-train1$SalePrice)^2)
+
+yhat.rf <- predict(rf.price,newdata=test1)
+mean((yhat.rf-test1$SalePrice)^2)
+```
+
+#Boosting
+```{r}
+set.seed(1)
+boost.price <- gbm(SalePrice ~ ., data = train1, distribution = "gaussian", n.trees = 5000, interaction.depth = 1, cv.folds = 5)
+
+best_n_tress <- which.min(boost.price$cv.error)
+
+yhat.boost <- predict(boost.price, newdata = train1, n.trees = best_n_tress)
+mean((yhat.boost - train1$SalePrice)^2)
+
+yhat.boost <- predict(boost.price, newdata = test1, n.trees = best_n_tress)
+mean((yhat.boost - test1$SalePrice)^2)
+
+```
+
+#PCA
+```{r}
+total1<-rbind(train2,test2)
+total1<-total1%>%
+  dplyr::select(-c(8,9,12))
+total_x <- total1 %>% dplyr::select(-1)
+total_y <- total1 %>% dplyr::select(1)
+pr.out <- prcomp(total_x, scale = TRUE)
+biplot(pr.out,scale=0)
+```
+```{r}
+pr.var <- pr.out$sdev^2
+pve <- pr.var / sum(pr.var)
+par(mfrow = c(1, 2))
+plot(pve, xlab = "Principal Component",
+ylab = "Proportion of Variance Explained", ylim = c(0, 1),
+type = "b")
+plot(cumsum(pve), xlab = "Principal Component",
+ylab = "Cumulative Proportion of Variance Explained", ylim = c(0, 1), type = "b")
+```
+```{r}
+pca<-pr.out$x
+pc1<-pca[,1]
+pc2<-pca[,2]
+pc3<-pca[,3]
+sale_price<-total_y$SalePrice
+total_pca<-tibble(pc1=pc1,pc2=pc2,pc3=pc3,sale_price=sale_price)
+lm1<-lm(sale_price~pc1+pc2+pc3,data=total_pca)
+summary(lm1)
+total1<-rbind(train1,test1)
+lm2<-lm(SalePrice~.,data=total1)
+summary(lm2)
+```
